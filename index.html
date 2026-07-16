@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Platform Game</title>
+    <title>TilesEvo - Tile Based Resource Game</title>
     <style>
         * {
             margin: 0;
@@ -17,309 +17,212 @@
             display: flex;
             justify-content: center;
             align-items: center;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            font-family: Arial, sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            font-family: 'Arial', sans-serif;
             overflow: hidden;
         }
         
         #gameContainer {
             width: 100%;
             height: 100%;
-            max-width: 400px;
-            max-height: 100vh;
-            background: linear-gradient(to bottom, #87CEEB 0%, #E0F6FF 100%);
-            position: relative;
-            overflow: hidden;
-            box-shadow: 0 0 20px rgba(0, 0, 0, 0.3);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            background: #0f3460;
         }
         
         #gameCanvas {
             display: block;
-            width: 100%;
-            height: 100%;
-            background: linear-gradient(to bottom, #87CEEB 0%, #E0F6FF 100%);
+            border: 3px solid #e94560;
+            background: #1a1a2e;
+            cursor: crosshair;
+            box-shadow: 0 0 20px rgba(233, 69, 96, 0.5);
         }
         
-        #controls {
+        #ui {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            color: #e94560;
+            font-size: 16px;
+            z-index: 10;
+            font-weight: bold;
+            font-family: monospace;
+            line-height: 1.8;
+        }
+        
+        .stat {
+            margin: 5px 0;
+        }
+        
+        .stat-label {
+            color: #16f4d0;
+        }
+        
+        #info {
             position: absolute;
             bottom: 20px;
             left: 50%;
             transform: translateX(-50%);
-            display: flex;
-            gap: 20px;
-            z-index: 10;
-        }
-        
-        .control-btn {
-            width: 60px;
-            height: 60px;
-            border-radius: 50%;
-            border: 3px solid #333;
-            background: rgba(255, 255, 255, 0.8);
-            font-size: 24px;
-            cursor: pointer;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            user-select: none;
-            active:scale(0.95);
-            transition: all 0.1s;
-        }
-        
-        .control-btn:active {
-            background: rgba(255, 255, 255, 1);
-            transform: scale(0.95);
-        }
-        
-        #score {
-            position: absolute;
-            top: 20px;
-            left: 20px;
-            color: #333;
-            font-size: 20px;
-            z-index: 10;
-            font-weight: bold;
+            color: #16f4d0;
+            font-size: 14px;
+            text-align: center;
+            font-family: monospace;
+            pointer-events: none;
         }
     </style>
 </head>
 <body>
     <div id="gameContainer">
         <canvas id="gameCanvas"></canvas>
-        <div id="score">Score: 0</div>
-        <div id="controls">
-            <button class="control-btn" id="leftBtn">◀</button>
-            <button class="control-btn" id="jumpBtn">△</button>
-            <button class="control-btn" id="rightBtn">▶</button>
+        <div id="ui">
+            <div class="stat">Grid: <span class="stat-label" id="gridSize">16x16</span></div>
+            <div class="stat">Tiles: <span class="stat-label" id="tileCount">0</span></div>
+            <div class="stat">Resources: <span class="stat-label" id="resources">0</span></div>
         </div>
+        <div id="info">Click to place tiles • Right-click to remove</div>
     </div>
 
     <script>
+        // ========== GRID SYSTEM ==========
+        const GRID_WIDTH = 16;
+        const GRID_HEIGHT = 16;
+        const TILE_SIZE = 40;
+        const GRID_COLOR = '#2a2a4a';
+        const GRID_LINE_COLOR = '#3a3a5a';
+        const TILE_COLOR = '#16f4d0';
+        const TILE_BORDER_COLOR = '#0fbfa0';
+        const EMPTY_COLOR = '#1a1a2e';
+
         const canvas = document.getElementById('gameCanvas');
         const ctx = canvas.getContext('2d');
         
-        // Set canvas size
-        function resizeCanvas() {
-            canvas.width = canvas.offsetWidth;
-            canvas.height = canvas.offsetHeight;
-        }
-        resizeCanvas();
-        window.addEventListener('resize', resizeCanvas);
+        // Set canvas size based on grid
+        canvas.width = GRID_WIDTH * TILE_SIZE;
+        canvas.height = GRID_HEIGHT * TILE_SIZE;
         
-        // Game variables
-        const gravity = 0.6;
-        let score = 0;
+        // Grid state: 0 = empty, 1 = filled
+        const grid = Array(GRID_HEIGHT).fill(null).map(() => Array(GRID_WIDTH).fill(0));
         
-        // Player object
-        const player = {
-            x: canvas.width / 2 - 15,
-            y: canvas.height - 150,
-            width: 30,
-            height: 30,
-            velocityY: 0,
-            velocityX: 0,
-            jumping: false,
-            speed: 5
+        // Game state
+        let stats = {
+            tiles: 0,
+            resources: 10 // Start with 10 resources
         };
+
+        // ========== FUNCTIONS ==========
         
-        // Platforms
-        const platforms = [
-            { x: 0, y: canvas.height - 30, width: canvas.width, height: 30 } // Ground
-        ];
-        
-        // Generate platforms
-        function generatePlatforms() {
-            platforms.length = 1; // Keep ground
-            for (let i = 0; i < 8; i++) {
-                const y = canvas.height - 100 - i * 80;
-                const x = Math.random() * (canvas.width - 70);
-                platforms.push({
-                    x: x,
-                    y: y,
-                    width: 70,
-                    height: 15
-                });
+        function getGridCoords(clientX, clientY) {
+            const rect = canvas.getBoundingClientRect();
+            const x = clientX - rect.left;
+            const y = clientY - rect.top;
+            
+            const col = Math.floor(x / TILE_SIZE);
+            const row = Math.floor(y / TILE_SIZE);
+            
+            if (col >= 0 && col < GRID_WIDTH && row >= 0 && row < GRID_HEIGHT) {
+                return { row, col };
             }
+            return null;
         }
-        generatePlatforms();
         
-        // Collectibles
-        const collectibles = [];
-        function spawnCollectible() {
-            if (Math.random() < 0.3 && collectibles.length < 5) {
-                const platform = platforms[Math.floor(Math.random() * platforms.length)];
-                collectibles.push({
-                    x: platform.x + platform.width / 2,
-                    y: platform.y - 30,
-                    radius: 8
-                });
+        function placeTile(row, col) {
+            if (grid[row][col] === 0 && stats.resources > 0) {
+                grid[row][col] = 1;
+                stats.tiles++;
+                stats.resources--;
+                updateUI();
+                draw();
             }
         }
         
-        // Input handling
-        let keys = {};
-        
-        document.getElementById('leftBtn').addEventListener('pointerdown', () => { keys['left'] = true; });
-        document.getElementById('leftBtn').addEventListener('pointerup', () => { keys['left'] = false; });
-        
-        document.getElementById('rightBtn').addEventListener('pointerdown', () => { keys['right'] = true; });
-        document.getElementById('rightBtn').addEventListener('pointerup', () => { keys['right'] = false; });
-        
-        document.getElementById('jumpBtn').addEventListener('pointerdown', () => { keys['jump'] = true; });
-        document.getElementById('jumpBtn').addEventListener('pointerup', () => { keys['jump'] = false; });
-        
-        // Keyboard support
-        document.addEventListener('keydown', (e) => {
-            if (e.key === 'ArrowLeft') keys['left'] = true;
-            if (e.key === 'ArrowRight') keys['right'] = true;
-            if (e.key === ' ') { keys['jump'] = true; e.preventDefault(); }
-        });
-        
-        document.addEventListener('keyup', (e) => {
-            if (e.key === 'ArrowLeft') keys['left'] = false;
-            if (e.key === 'ArrowRight') keys['right'] = false;
-            if (e.key === ' ') keys['jump'] = false;
-        });
-        
-        // Update function
-        function update() {
-            // Horizontal movement
-            if (keys['left']) player.x -= player.speed;
-            if (keys['right']) player.x += player.speed;
-            
-            // Wrap around screen
-            if (player.x < 0) player.x = canvas.width;
-            if (player.x + player.width > canvas.width) player.x = -player.width;
-            
-            // Apply gravity
-            player.velocityY += gravity;
-            player.y += player.velocityY;
-            
-            // Platform collision
-            let onPlatform = false;
-            for (let platform of platforms) {
-                if (
-                    player.velocityY >= 0 &&
-                    player.y + player.height <= platform.y + 10 &&
-                    player.y + player.height >= platform.y - 10 &&
-                    player.x + player.width > platform.x &&
-                    player.x < platform.x + platform.width
-                ) {
-                    player.velocityY = 0;
-                    player.y = platform.y - player.height;
-                    onPlatform = true;
-                }
+        function removeTile(row, col) {
+            if (grid[row][col] === 1) {
+                grid[row][col] = 0;
+                stats.tiles--;
+                stats.resources++;
+                updateUI();
+                draw();
             }
-            
-            // Jump
-            if (keys['jump'] && onPlatform) {
-                player.velocityY = -12;
-            }
-            
-            // Collectible collision
-            for (let i = collectibles.length - 1; i >= 0; i--) {
-                const c = collectibles[i];
-                const dx = player.x + player.width / 2 - c.x;
-                const dy = player.y + player.height / 2 - c.y;
-                const distance = Math.sqrt(dx * dx + dy * dy);
-                
-                if (distance < player.width / 2 + c.radius) {
-                    collectibles.splice(i, 1);
-                    score += 10;
-                    document.getElementById('score').textContent = 'Score: ' + score;
-                }
-            }
-            
-            // Game over
-            if (player.y > canvas.height) {
-                player.y = canvas.height - 150;
-                player.velocityY = 0;
-                score = Math.max(0, score - 50);
-                document.getElementById('score').textContent = 'Score: ' + score;
-            }
-            
-            // Camera follow
-            if (player.y < canvas.height / 3) {
-                const shift = canvas.height / 3 - player.y;
-                player.y = canvas.height / 3;
-                for (let platform of platforms) {
-                    platform.y += shift;
-                }
-                for (let collectible of collectibles) {
-                    collectible.y += shift;
-                }
-                
-                // Generate new platforms
-                const lowestPlatform = Math.max(...platforms.map(p => p.y));
-                if (lowestPlatform > 50) {
-                    for (let i = 0; i < 2; i++) {
-                        const y = Math.min(...platforms.map(p => p.y)) - 80;
-                        const x = Math.random() * (canvas.width - 70);
-                        platforms.push({
-                            x: x,
-                            y: y,
-                            width: 70,
-                            height: 15
-                        });
-                    }
-                }
-            }
-            
-            // Remove off-screen platforms
-            for (let i = platforms.length - 1; i > 0; i--) {
-                if (platforms[i].y > canvas.height + 100) {
-                    platforms.splice(i, 1);
-                }
-            }
-            
-            spawnCollectible();
         }
         
-        // Draw function
+        function updateUI() {
+            document.getElementById('tileCount').textContent = stats.tiles;
+            document.getElementById('resources').textContent = stats.resources;
+        }
+        
         function draw() {
             // Clear canvas
-            ctx.fillStyle = 'rgba(135, 206, 235, 0.1)';
+            ctx.fillStyle = EMPTY_COLOR;
             ctx.fillRect(0, 0, canvas.width, canvas.height);
             
-            // Draw platforms
-            ctx.fillStyle = '#8B4513';
-            for (let platform of platforms) {
-                ctx.fillRect(platform.x, platform.y, platform.width, platform.height);
-                ctx.strokeStyle = '#654321';
-                ctx.lineWidth = 2;
-                ctx.strokeRect(platform.x, platform.y, platform.width, platform.height);
-            }
+            // Draw grid
+            ctx.strokeStyle = GRID_LINE_COLOR;
+            ctx.lineWidth = 1;
             
-            // Draw collectibles
-            ctx.fillStyle = '#FFD700';
-            for (let collectible of collectibles) {
+            // Vertical lines
+            for (let col = 0; col <= GRID_WIDTH; col++) {
                 ctx.beginPath();
-                ctx.arc(collectible.x, collectible.y, collectible.radius, 0, Math.PI * 2);
-                ctx.fill();
-                ctx.strokeStyle = '#FFA500';
-                ctx.lineWidth = 2;
+                ctx.moveTo(col * TILE_SIZE, 0);
+                ctx.lineTo(col * TILE_SIZE, canvas.height);
                 ctx.stroke();
             }
             
-            // Draw player
-            ctx.fillStyle = '#FF6B6B';
-            ctx.fillRect(player.x, player.y, player.width, player.height);
-            ctx.strokeStyle = '#CC5555';
-            ctx.lineWidth = 2;
-            ctx.strokeRect(player.x, player.y, player.width, player.height);
+            // Horizontal lines
+            for (let row = 0; row <= GRID_HEIGHT; row++) {
+                ctx.beginPath();
+                ctx.moveTo(0, row * TILE_SIZE);
+                ctx.lineTo(canvas.width, row * TILE_SIZE);
+                ctx.stroke();
+            }
             
-            // Draw eyes
-            ctx.fillStyle = '#000';
-            ctx.fillRect(player.x + 8, player.y + 8, 6, 6);
-            ctx.fillRect(player.x + 16, player.y + 8, 6, 6);
+            // Draw tiles
+            for (let row = 0; row < GRID_HEIGHT; row++) {
+                for (let col = 0; col < GRID_WIDTH; col++) {
+                    if (grid[row][col] === 1) {
+                        const x = col * TILE_SIZE;
+                        const y = row * TILE_SIZE;
+                        
+                        // Tile background
+                        ctx.fillStyle = TILE_COLOR;
+                        ctx.fillRect(x + 2, y + 2, TILE_SIZE - 4, TILE_SIZE - 4);
+                        
+                        // Tile border
+                        ctx.strokeStyle = TILE_BORDER_COLOR;
+                        ctx.lineWidth = 2;
+                        ctx.strokeRect(x + 2, y + 2, TILE_SIZE - 4, TILE_SIZE - 4);
+                    }
+                }
+            }
         }
         
-        // Game loop
+        // ========== EVENT LISTENERS ==========
+        
+        canvas.addEventListener('click', (e) => {
+            const coords = getGridCoords(e.clientX, e.clientY);
+            if (coords) {
+                placeTile(coords.row, coords.col);
+            }
+        });
+        
+        canvas.addEventListener('contextmenu', (e) => {
+            e.preventDefault();
+            const coords = getGridCoords(e.clientX, e.clientY);
+            if (coords) {
+                removeTile(coords.row, coords.col);
+            }
+        });
+        
+        // ========== GAME LOOP ==========
+        
         function gameLoop() {
-            update();
             draw();
             requestAnimationFrame(gameLoop);
         }
         
+        // Initialize
+        updateUI();
         gameLoop();
     </script>
 </body>
